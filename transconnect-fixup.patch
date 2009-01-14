@@ -1,0 +1,158 @@
+--- transconnect-1.3-Beta/tconn.c.fixup	2002-02-06 10:50:30.000000000 +0100
++++ transconnect-1.3-Beta/tconn.c	2006-07-24 02:13:09.000000000 +0200
+@@ -56,6 +56,7 @@
+ #include<fcntl.h>
+ #include<resolv.h>
+ 
++#define barrier()              __asm__ __volatile__("":::"memory")
+ 
+ /* Maximum no of local networks you can have in config file */
+ #define MAX_LOCAL_NETS 20
+@@ -139,7 +140,8 @@ int connect (int sockfd, const struct so
+ 
+   char buf[100], *cp;			/* Some Buffers */
+ 
+-  char configfile[CONFIG_FILE_MAX];	/* Name of the configuration file */
++    // FIXUP: configfile[CONFIG_FILE_MAX] will be accessed several times
++  char configfile[CONFIG_FILE_MAX+1];	/* Name of the configuration file */
+   char *tconn_env;			/* Environment Variable path for Config File */
+   FILE *fp;				/* For opening config file */
+   
+@@ -150,7 +152,8 @@ int connect (int sockfd, const struct so
+   struct passwd *pwent;			/* Needed for reading the password file to extract home directory */
+   
+   int optval;				/* Options for socket */
+-  int optlen;
++    // FIXUP: avoid compiler warning about bad signess
++  socklen_t optlen;
+ 
+ #ifdef _BSD_HACK_
+   static void *handle;			/* On BSD we can't use RTLD_NEXT. So we need a handle to libc */
+@@ -194,7 +197,8 @@ int connect (int sockfd, const struct so
+ 
+   /* Extract the Environment Variable, and see if the config file path is set */
+   tconn_env = getenv("TCONN");
+-  if (tconn_env != NULL) 
++    // FIXUP: ignore empty $TCONN env
++  if (tconn_env != NULL && *tconn_env) 
+   {
+       /* use config file name from environment variable */
+       strncpy (configfile, tconn_env, CONFIG_FILE_MAX);
+@@ -202,13 +206,19 @@ int connect (int sockfd, const struct so
+   }
+   else
+   {
++          // FIXUP: variables needed for getpwuid_r; the variable array-size is
++          //        valid standard C...
++	long const	sz = sysconf(_SC_GETPW_R_SIZE_MAX);
++        struct passwd	pwent_buf;
++        char		tmp[sz==-1 ? 1024 : sz];
+       	/* no environment variable set up - default to ~/.tconn/tconn.conf */
+       	/* We Extract the users home directory from password file */
+ 
+ 	/* Add the default file path to home directory to get the absolute path */
+         uid = getuid ();
+ 
+-  	if ((pwent = getpwuid (uid)) != NULL)
++	  // FIXUP: getpwuid(3) is not thread-safe
++	if (getpwuid_r(uid, &pwent_buf, tmp, sizeof tmp, &pwent)!=-1)
+   	{
+ 	     strncpy (configfile, pwent->pw_dir, CONFIG_FILE_MAX -
+ 			     (sizeof(CONFIG_FILE_DEFAULT) + 1));
+@@ -367,7 +377,10 @@ int connect (int sockfd, const struct so
+           if (TCONN_DEBUG) fprintf (stderr, "useragent is %s\n", useragent);
+       }
+ 
+-      if (TCONN_MATCH (buf, "localnet") && lnnum < MAX_LOCAL_NETS)
++	// FIXUP: localnet[0].valid might be used uninitialized else
++      localnet[0].valid = TCONN_FALSE;
++	// FIXUP: localnet[lnnum+1] will be accessed below
++      if (TCONN_MATCH (buf, "localnet") && lnnum+1 < MAX_LOCAL_NETS)
+       {
+ 	  cp = buf + sizeof ("localnet") - 1;
+ 	  while (*cp == ' ' || *cp == '\t')
+@@ -398,6 +411,10 @@ int connect (int sockfd, const struct so
+       }
+   } 
+ 
++    // FIXUP: 'buf' might still contain password data
++  memset(buf, 0, sizeof buf);
++  barrier();
++  
+   /* Close the config file now */
+   fclose(fp);
+ 
+@@ -432,7 +449,8 @@ int connect (int sockfd, const struct so
+       int   connectbuflen;		/* length */
+       char  authbuf[120];		/* Buffer */
+       int   authbuflen;			/* length */
+-      char  useragentbuf[100];		/* Buffer */
++	// FIXUP: added space for HTTP header
++      char  useragentbuf[120];		/* Buffer */
+       int   useragentbuflen;		/* length */
+       char  headerbuf[1000];		/* Buffer */
+       int   hbuflen;			/* length */
+@@ -497,16 +515,33 @@ int connect (int sockfd, const struct so
+            strncpy(authstring,proxyuser,19);
+ 	   strncat(authstring,":",2);
+ 	   strncat(authstring,proxypass,39);
++
++	     // FIXUP: override authorization information as not needed anymore
++	   memset(proxyuser, 0, sizeof proxyuser);
++	   memset(proxypass, 0, sizeof proxypass);
++	   barrier();
+ 	   
+ 	   if (TCONN_DEBUG) fprintf (stderr, " authstring is %s\n", authstring);
+ 	   /* Encode the uasername and password */
+        	   ajayd_tconn_base64_encode(authstring,proxyauth);
++	   
++	     // FIXUP: override authorization information as not needed anymore
++	   memset(authstring, 0, sizeof authstring);
++	   barrier();
+ 
+ 	   authbuflen = snprintf (authbuf, 120,
+ 		      "Proxy-Authorization: Basic %s\r\n", proxyauth);
++
++	     // FIXUP: override authorization information as not needed anymore
++	   memset(proxyauth, 0, sizeof proxyauth);
++	   barrier();
++	   
+       	   /* Reset the signals and return if there is an error */
+ 	   if (send (sockfd, authbuf, authbuflen, 0) != authbuflen)
+ 	   {
++	        // FIXUP: override authorization information
++	      memset(authbuf, 0, sizeof authbuf);
++	      barrier();
+ 	      signal(SIGPIPE,oldpipehandler);
+ 	      signal(SIGALRM,oldtimehandler);
+               fcntl(sockfd,F_SETFL,flags);
+@@ -515,12 +550,17 @@ int connect (int sockfd, const struct so
+ 	   }
+ 	   
+ 	   if (TCONN_DEBUG) fprintf (stderr, "%s", authbuf);
++
++	     // FIXUP: override authorization information as not needed anymore
++	   memset(authbuf, 0, sizeof authbuf);
++	   barrier();
+       }	
+ 
+       /* Send the User-Agent String if set */
+       if (useragentset)
+       {
+-	  useragentbuflen = snprintf (useragentbuf, 100,
++	  // FIXUP: use 'sizeof ...' instead of numeric size
++	  useragentbuflen = snprintf (useragentbuf, sizeof useragentbuf,
+ 		      "User-Agent: %s\r\n", useragent);
+           /* Reset the signals and return if there is an error */  
+ 	  if (send (sockfd, useragentbuf, useragentbuflen, 0) != useragentbuflen)
+@@ -586,7 +626,9 @@ int connect (int sockfd, const struct so
+ 	      return -1;
+ 	  }
+ 	  /* We don;t expect proxy to send so many headers */
+-	  if (hbuflen == 999)	/* This means only junk is coming. */
++	    // FIXUP: [buflen+2] will be accessed below, so use 'sizeof ...' 
++	    //        and avoid numeric sizes
++	  if (hbuflen+2 == sizeof(headerbuf))	/* This means only junk is coming. */
+ 	  {
+ 	      signal(SIGPIPE,oldpipehandler);
+ 	      signal(SIGALRM,oldtimehandler);
