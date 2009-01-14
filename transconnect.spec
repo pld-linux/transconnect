@@ -5,14 +5,13 @@ Name:		transconnect
 # till end of days.
 Summary:	A function imposter to allow transparent connection over HTTPS proxies
 Version:	1.3
-Release:	0.1
+Release:	1
 License:	GPL
 Group:		Applications/Networking
 URL:		http://transconnect.sourceforge.net/
 Source0:	http://dl.sourceforge.net/transconnect/%{name}-%{version}-Beta.tar.gz
 # Source0-md5:	50f75731e610fce00803cc7d98b301fd
-Source1:	http://ensc.de/fedora/transconnect/tconn
-# Source1-md5:	625d6208360474a0488bbca22bf48546
+Source1:	tconn
 Patch0:		%{name}-fixup.patch
 BuildRoot:	%{tmpdir}/%{name}-%{version}-root-%(id -u -n)
 
@@ -30,7 +29,7 @@ using glibc, and all proxies allowing https CONNECT (eg squid).
 for i in localres tcpdns localtcp; do
 	%{__make} CFLAGS="%{rpmcflags} -fPIC" CC="%{__cc}" "$i"
 	mv tconn.so tconn-$i.so
-	make clean
+	%{__make} clean
 done
 
 %{__make} CFLAGS="%{rpmcflags} -fPIC" CC="%{__cc}"
@@ -38,7 +37,7 @@ done
 %install
 rm -rf $RPM_BUILD_ROOT
 install -d $RPM_BUILD_ROOT{%{_libdir},%{_bindir}}
-install -p %{SOURCE1}  $RPM_BUILD_ROOT%{_bindir}
+install -p %{SOURCE1} $RPM_BUILD_ROOT%{_bindir}
 install -p tconn*.so $RPM_BUILD_ROOT%{_libdir}
 
 %clean
