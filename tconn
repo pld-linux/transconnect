@@ -1,4 +1,4 @@
-#! /bin/bash
+#! /bin/sh
 
 # Copyright (C) 2006 Enrico Scholz <enrico.scholz@informatik.tu-chemnitz.de>
 #  
@@ -92,4 +92,4 @@ EOF
 fi
 
 LD_PRELOAD=$TCONN_LIB \
-    exec -- "$cmd" "$@"
+    exec "$cmd" "$@"
